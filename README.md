@@ -2,7 +2,7 @@
 
 ## Project Summary
 
-A scoring based music recommender that ranks a 20 song catalog against a user Taste profile using genre matching, Mood adjacency, and Gaussian proximity across four audio features.<br>
+A scoring based music recommender that ranks a 20 song catalog against a user taste profile using Genre matching, Mood adjacency, and Gaussian proximity across four audio features.<br>
 
 Built to explore how small design decisions like a single point bonus can quietly shape every result.<br>
 
