@@ -26,20 +26,20 @@ Music recommenders today, like Spotify work by converting songs and users into v
 | `speechiness` | numeric (0–1) | Gaussian proximity to `target_speechiness` |
 | `instrumentalness` | numeric (0–1) | Stored on Song; informs future scoring extensions |
 
-### Taste Profile (UserProfile / `user_prefs` dict)
+### Taste Profile (`UserProfile`)
 
-The taste profile is a dictionary of target values the recommender scores each song against. It can be constructed manually or derived from a seed song.
+The taste profile is a `UserProfile` instance that holds target values the recommender scores each song against.
 
 ```python
-user1 = {
-    "preferred_mood":     "intense",   # drives mood adjacency
-    "preferred_genre":    "rock",      # drives genre bonus
-    "target_energy":       0.93,       # Gaussian scored
-    "target_tempo_bpm":    152,        # Gaussian scored (normalized)
-    "target_acousticness": 0.10,       # Gaussian scored
-    "target_speechiness":  0.06,       # Gaussian scored
-    "sigma":               0.15        # tolerance window — tighter = pickier
-}
+user1 = UserProfile(
+    preferred_mood="intense",      # drives mood adjacency
+    preferred_genre="rock",        # drives genre bonus
+    target_energy=0.93,            # Gaussian scored
+    target_tempo_bpm=152,          # Gaussian scored (normalized)
+    target_acousticness=0.10,      # Gaussian scored
+    target_speechiness=0.06,       # Gaussian scored
+    sigma=0.15,                    # tolerance window — tighter = pickier
+)
 ```
 
 ### How a Score is Computed
@@ -73,22 +73,21 @@ euphoric ── happy ── uplifted ── groovy
 ### System Sketch
 
 ```
-[user_prefs dict] ──────────────────────────────┐
+[UserProfile] ──────────────────────────────────┐
                                                  │
 [songs.csv] ──► [load_songs()] ──► [Song list]  │
                                         │        │
                                         ▼        ▼
-                                   [recommend_songs()]
+                                   [Recommender.recommend()]
                                         │
                                         │  for each song:
                                         │  score = Σ weighted feature proximity
                                         ▼
                                    [scored list]
                                         │
-                                        ├─ drop score < 0.40
                                         ├─ sort descending
                                         ├─ cap consecutive same-genre
-                                        └─ return top k results
+                                        └─ return top k Song objects
 ```
 
 ### Algorithm Recipe

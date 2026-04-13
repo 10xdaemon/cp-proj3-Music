@@ -1,8 +1,11 @@
 """
 Music recommendation engine.
 
-Provides load_songs, score_song, and recommend_songs for scoring and
-ranking a catalog of songs against a user preference profile.
+Public API:
+    Song         — audio feature data class
+    UserProfile  — user taste preference data class
+    load_songs   — read a CSV catalog into a list of Song objects
+    Recommender  — score and rank songs against a UserProfile
 """
 
 import csv
@@ -28,8 +31,8 @@ class Song:
     valence: float
     danceability: float
     acousticness: float
-    speechiness: float
-    instrumentalness: float
+    speechiness: float = 0.0
+    instrumentalness: float = 0.0
 
 
 @dataclass
@@ -42,21 +45,6 @@ class UserProfile:
     target_acousticness: float
     target_speechiness: float
     sigma: float
-
-
-class Recommender:
-    """OOP wrapper around the recommendation logic."""
-
-    def __init__(self, songs: List[Song]):
-        self.songs = songs
-
-    def recommend(self, user: UserProfile, k: int = 5) -> List[Song]:
-        # TODO: Implement recommendation logic
-        return self.songs[:k]
-
-    def explain_recommendation(self, user: UserProfile, song: Song) -> str:
-        # TODO: Implement explanation logic
-        return "Explanation placeholder"
 
 
 # ---------------------------------------------------------------------------
@@ -100,16 +88,14 @@ _MOOD_POINTS: Dict[int, float] = {0: 1.0, 1: 0.5, 2: 0.2}
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Private helpers
 # ---------------------------------------------------------------------------
 
 def _gaussian(diff: float, sigma: float) -> float:
-    """Return a Gaussian similarity score in (0, 1] for a given difference."""
     return math.exp(-(diff ** 2) / (2 * sigma ** 2))
 
 
 def _mood_distance(user_mood: str, song_mood: str) -> int:
-    """Return the graph distance between two moods (0, 1, 2, or 99 if unreachable)."""
     if user_mood == song_mood:
         return 0
     neighbors = MOOD_GRAPH.get(user_mood, set())
@@ -121,100 +107,105 @@ def _mood_distance(user_mood: str, song_mood: str) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Core API
+# Data loader
 # ---------------------------------------------------------------------------
 
-def load_songs(csv_path: str) -> List[Dict]:
-    """Read a songs CSV file and return a list of typed song dicts."""
+def load_songs(csv_path: str) -> List[Song]:
+    """Read a songs CSV file and return a list of Song objects."""
     songs = []
     with open(csv_path, newline='') as f:
         reader = csv.DictReader(f)
         for row in reader:
             clean = {k.strip(): v.strip() for k, v in row.items()}
-            songs.append({
-                'id':               int(clean['id']),
-                'title':            clean['title'],
-                'artist':           clean['artist'],
-                'genre':            clean['genre'],
-                'mood':             clean['mood'],
-                'energy':           float(clean['energy']),
-                'tempo_bpm':        float(clean['tempo_bpm']),
-                'valence':          float(clean['valence']),
-                'danceability':     float(clean['danceability']),
-                'acousticness':     float(clean['acousticness']),
-                'speechiness':      float(clean['speechiness']),
-                'instrumentalness': float(clean['instrumentalness']),
-            })
+            songs.append(Song(
+                id=int(clean['id']),
+                title=clean['title'],
+                artist=clean['artist'],
+                genre=clean['genre'],
+                mood=clean['mood'],
+                energy=float(clean['energy']),
+                tempo_bpm=float(clean['tempo_bpm']),
+                valence=float(clean['valence']),
+                danceability=float(clean['danceability']),
+                acousticness=float(clean['acousticness']),
+                speechiness=float(clean['speechiness']),
+                instrumentalness=float(clean['instrumentalness']),
+            ))
     return songs
 
 
-def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
-    """Score one song against user preferences.
+# ---------------------------------------------------------------------------
+# Recommender
+# ---------------------------------------------------------------------------
 
-    Returns:
-        A (total_score, reasons) tuple where reasons is a list of
-        human-readable strings describing each scoring component.
-    """
-    sigma = user_prefs.get('sigma', 0.20)
-    score = 0.0
-    reasons = []
+class Recommender:
+    """Scores and ranks a catalog of songs against a user preference profile."""
 
-    # Genre match: max +2.0
-    if song['genre'] == user_prefs.get('preferred_genre', ''):
-        score += _W_GENRE
-        reasons.append(f'genre match (+{_W_GENRE})')
+    def __init__(self, songs: List[Song]):
+        self.songs = songs
 
-    # Mood adjacency: +1.0 exact / +0.5 one step / +0.2 two steps
-    dist = _mood_distance(user_prefs.get('preferred_mood', ''), song['mood'])
-    mood_pts = _MOOD_POINTS.get(dist, 0.0)
-    if mood_pts > 0:
-        label = 'match' if dist == 0 else f'{dist}-step away'
-        score += mood_pts
-        reasons.append(f'mood {label} (+{mood_pts})')
+    @staticmethod
+    def score(user: UserProfile, song: Song) -> Tuple[float, List[str]]:
+        """Score one song against user preferences.
 
-    # Continuous feature proximity via Gaussian (weighted by importance)
-    norm_user_tempo = (user_prefs['target_tempo_bpm'] - _TEMPO_MIN) / (_TEMPO_MAX - _TEMPO_MIN)
-    norm_song_tempo = (song['tempo_bpm']              - _TEMPO_MIN) / (_TEMPO_MAX - _TEMPO_MIN)
+        Returns:
+            (total_score, reasons) where reasons is a list of labeled score components.
+        """
+        total = 0.0
+        reasons = []
 
-    components = (
-        (_W_ENERGY,       abs(user_prefs['target_energy']       - song['energy']),       'energy proximity'),
-        (_W_ACOUSTICNESS, abs(user_prefs['target_acousticness'] - song['acousticness']), 'acousticness proximity'),
-        (_W_TEMPO,        abs(norm_user_tempo - norm_song_tempo),                        'tempo proximity'),
-        (_W_SPEECHINESS,  abs(user_prefs['target_speechiness']  - song['speechiness']),  'speechiness proximity'),
-    )
-    for weight, diff, label in components:
-        pts = weight * _gaussian(diff, sigma)
-        score += pts
-        reasons.append(f'{label} (+{pts:.2f})')
+        # Genre match: max +2.0
+        if song.genre == user.preferred_genre:
+            total += _W_GENRE
+            reasons.append(f'genre match (+{_W_GENRE})')
 
-    return score, reasons
+        # Mood adjacency: +1.0 exact / +0.5 one step / +0.2 two steps
+        dist = _mood_distance(user.preferred_mood, song.mood)
+        mood_pts = _MOOD_POINTS.get(dist, 0.0)
+        if mood_pts > 0:
+            label = 'match' if dist == 0 else f'{dist}-step away'
+            total += mood_pts
+            reasons.append(f'mood {label} (+{mood_pts})')
 
+        # Continuous feature proximity via Gaussian (weighted by importance)
+        norm_user_tempo = (user.target_tempo_bpm - _TEMPO_MIN) / (_TEMPO_MAX - _TEMPO_MIN)
+        norm_song_tempo = (song.tempo_bpm        - _TEMPO_MIN) / (_TEMPO_MAX - _TEMPO_MIN)
 
-def recommend_songs(user_prefs: Dict, songs: List[Dict], k: int = 5) -> List[Tuple[Dict, float, str]]:
-    """Score every song, sort by score descending, and return the top k results.
+        for weight, diff, label in (
+            (_W_ENERGY,       abs(user.target_energy       - song.energy),       'energy proximity'),
+            (_W_ACOUSTICNESS, abs(user.target_acousticness - song.acousticness), 'acousticness proximity'),
+            (_W_TEMPO,        abs(norm_user_tempo - norm_song_tempo),            'tempo proximity'),
+            (_W_SPEECHINESS,  abs(user.target_speechiness  - song.speechiness),  'speechiness proximity'),
+        ):
+            pts = weight * _gaussian(diff, user.sigma)
+            total += pts
+            reasons.append(f'{label} (+{pts:.2f})')
 
-    A genre-streak cap (max 2 consecutive same-genre songs) is applied to
-    encourage variety in the final list.
-    """
-    scored = []
-    for song in songs:
-        song_score, reasons = score_song(user_prefs, song)
-        scored.append((song, song_score, ' | '.join(reasons)))
-    scored.sort(key=lambda x: x[1], reverse=True)
+        return total, reasons
 
-    results: List[Tuple[Dict, float, str]] = []
-    last_genre: str | None = None
-    streak = 0
+    def recommend(self, user: UserProfile, k: int = 5) -> List[Song]:
+        """Return the top k songs ranked by score for the given user profile.
 
-    for song, song_score, explanation in scored:
-        if song['genre'] == last_genre:
-            streak += 1
-        else:
-            last_genre = song['genre']
-            streak = 1
-        if streak <= 2:
-            results.append((song, song_score, explanation))
-        if len(results) == k:
-            break
+        A genre-streak cap (max 2 consecutive same-genre songs) is applied to
+        encourage variety in the final list.
+        """
+        ranked = sorted(self.songs, key=lambda s: self.score(user, s)[0], reverse=True)
 
-    return results
+        results: List[Song] = []
+        last_genre: str | None = None
+        streak = 0
+
+        for song in ranked:
+            streak = streak + 1 if song.genre == last_genre else 1
+            last_genre = song.genre
+            if streak <= 2:
+                results.append(song)
+            if len(results) == k:
+                break
+
+        return results
+
+    def explain_recommendation(self, user: UserProfile, song: Song) -> str:
+        """Return a human-readable explanation of why a song was recommended."""
+        _, reasons = self.score(user, song)
+        return ' | '.join(reasons)

@@ -32,26 +32,32 @@ def make_small_recommender() -> Recommender:
 
 def test_recommend_returns_songs_sorted_by_score():
     user = UserProfile(
-        favorite_genre="pop",
-        favorite_mood="happy",
+        preferred_mood="happy",
+        preferred_genre="pop",
         target_energy=0.8,
-        likes_acoustic=False,
+        target_tempo_bpm=120,
+        target_acousticness=0.2,
+        target_speechiness=0.05,
+        sigma=0.20,
     )
     rec = make_small_recommender()
     results = rec.recommend(user, k=2)
 
     assert len(results) == 2
-    # Starter expectation: the pop, happy, high energy song should score higher
+    # The pop, happy, high energy song should score higher
     assert results[0].genre == "pop"
     assert results[0].mood == "happy"
 
 
 def test_explain_recommendation_returns_non_empty_string():
     user = UserProfile(
-        favorite_genre="pop",
-        favorite_mood="happy",
+        preferred_mood="happy",
+        preferred_genre="pop",
         target_energy=0.8,
-        likes_acoustic=False,
+        target_tempo_bpm=120,
+        target_acousticness=0.2,
+        target_speechiness=0.05,
+        sigma=0.20,
     )
     rec = make_small_recommender()
     song = rec.songs[0]
